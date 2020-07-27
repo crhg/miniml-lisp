@@ -2,7 +2,7 @@
   (:use :cl :my-util/case-match :my-util/dbind)
   (:export
    eval-exp eval-prog1
-   true false if let def fun))
+   true false if let letrec def fun))
 (in-package :miniml-lisp)
 
 (defun boolp (x)
@@ -12,13 +12,10 @@
 (defun env-empty () '())
 
 (defun env-lookup (x env)
-  (cond
-    ((null env) (error (format nil "not found: ~A" x)))
-    ((eq x (caar env)) (cdar env))
-    (t (env-lookup x (cdr env)))))
-
+  (cdr (assoc x env)))
+       
 (defun env-add (id value env)
-  `((,id . ,value) ,@env))
+  (acons id value env))
 
 (defun env-add-binds (binds env)
   (reduce
@@ -27,6 +24,20 @@
 	 (env-add id value env)))
    binds
    :initial-value env))
+
+(defun env-overwrite (id value env)
+  (let ((found (assoc id env)))
+    (if found
+	(setf (cdr (assoc id env)) value)
+	(error (format nil "env-set not found : ~A" id)))
+    env))
+
+(defun env-overwrite-binds (binds env)
+  (mapc #'(lambda (bind)
+	    (dbind (id value) bind
+		   (env-overwrite id value env)))
+	binds)
+  env)
 
 (defun make-closure (var exp env)
   `(closure ,var ,exp ,env))
@@ -57,6 +68,12 @@
 	       (let ((new-env
 		      (env-add-binds (eval-binds env ?binds) env)))
 		 (eval-exp new-env ?exp)))
+	      ((letrec ?binds ?exp)
+	       (let* ((dummy-env
+		       (env-add-binds (dummy-binds ?binds) env))
+		      (new-env
+		       (env-overwrite-binds (eval-binds dummy-env ?binds) dummy-env)))
+		 (eval-exp new-env ?exp)))
 	      ((fun ?var ?exp)
 	       (make-closure ?var ?exp env))
 	      ((?exp1 ?exp2)
@@ -73,6 +90,12 @@
   (mapcar #'(lambda (bind)
 	      (dbind (var exp) bind
 		`(,var ,(eval-exp env exp))))
+	  binds))
+
+(defun dummy-binds (binds)
+  (mapcar #'(lambda (bind)
+	      (let ((var (car bind)))
+		`(,var nil)))
 	  binds))
 
 (defun apply-prim (env op left right)
