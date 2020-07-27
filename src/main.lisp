@@ -1,5 +1,5 @@
 (defpackage miniml-lisp
-  (:use :cl :my-util/case-match)
+  (:use :cl :my-util/case-match :my-util/dbind)
   (:export
    eval-exp eval-prog1
    true false if let def fun))
@@ -72,8 +72,7 @@
 
 (defun eval-binds (env binds)
   (mapcar #'(lambda (bind)
-	      (let ((var (car bind))
-		    (exp (cadr bind)))
+	      (dbind (var exp) bind
 		`(,var ,(eval-exp env exp))))
 	  binds))
 
