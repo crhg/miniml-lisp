@@ -23,8 +23,7 @@
 (defun env-add-binds (binds env)
   (reduce
    #'(lambda (env bind)
-       (let ((id (car bind))
-	     (value (cadr bind)))
+       (dbind (id value) bind
 	 (env-add id value env)))
    binds
    :initial-value env))
