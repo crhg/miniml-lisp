@@ -125,6 +125,35 @@
       (cons (cons left-value right-value))
       (t (error (format nil "unknown operator: ~A" op))))))
 
+(defun eval-match (env value pat-exps)
+  (if (null pat-exps)
+      (error (format nil "no match"))
+      (dbind ((pat exp) . rest) pat-exps
+	(multiple-value-bind (matched binds) (match pat value)
+	  (if matched
+	      (eval-exp (env-add-binds binds env) exp)
+	      (eval-match env value rest))))))
+
+(defun match (pat value)
+  (case-match pat
+    (nil (values (null value) '()))
+    (true (values (eq 'true value) '()))
+    (false (values (eq 'false value) '()))
+    (?var :where (symbolp ?var) (values t `((,?var ,value))))
+    (?num :where (numberp ?num) (values (= ?num value) '()))
+    ((quote ?const) (values (equal ?const value) '()))
+    ((?car-pat . ?cdr-pat)
+     (if (consp value)
+	 (multiple-value-bind (car-matched car-binds) (match ?car-pat (car value))
+	   (if car-matched
+	       (multiple-value-bind (cdr-matched cdr-binds) (match ?cdr-pat (cdr value))
+		 (if cdr-matched
+		     (values t (union car-binds cdr-binds))
+		     (values nil '())))
+	       (values nil '())))
+	 (values nil '())))
+    (:_ (error (format nil "invalid pattern: ~A" pat)))))
+
 ;; progをenvのもとで評価して
 ;; (<結果> <新しい環境)の形のリストを返す。
 ;; <結果>はprogが
