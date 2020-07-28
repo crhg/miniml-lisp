@@ -51,12 +51,17 @@
 
 (defun eval-exp (env exp)
   (case-match exp
+	      (nil nil)
 	      (:_ :where (numberp exp) exp)
 	      (true 'true)
 	      (false 'false)
 	      (:_ :where (symbolp exp) (env-lookup exp env))
-	      ((?op ?lhs ?rhs) :where (member ?op '(+ * <))
+	      ((quote ?x) ?x)
+	      ((?op ?lhs ?rhs) :where (member ?op '(+ * < cons))
 	       (apply-prim env ?op ?lhs ?rhs))
+	      ((list . ?exps)
+	       (eval-exp env
+			 (reduce #'(lambda (e c) `(cons ,e ,c)) ?exps :initial-value nil :from-end t)))
 	      ((if ?test ?then ?else)
 	       (let ((test (eval-exp env ?test)))
 		 (case test
@@ -117,6 +122,7 @@
 	 (or (numberp right-value)
 	     (error (format nil "right must be number(<): ~A" right-value)))
 	 (if (< left-value right-value) 'true 'false))
+      (cons (cons left-value right-value))
       (t (error (format nil "unknown operator: ~A" op))))))
 
 ;; progをenvのもとで評価して
