@@ -129,17 +129,17 @@
 	      ((def ?binds)
 	       (let* ((bind-values (eval-binds env ?binds))
 		      (new-env (env-add-binds bind-values env)))
-		 `(,bind-values ,new-env)))
+		 (values bind-values new-env)))
 	      ((defrec ?binds)
 	       (let* ((dummy-env
 		       (env-add-binds (dummy-binds ?binds) env))
 		      (bind-values (eval-binds dummy-env ?binds))
 		      (new-env
 		       (env-overwrite-binds bind-values dummy-env)))
-		 `(,bind-values ,new-env)))
+		 (values bind-values new-env)))
 	      (:_
 	       (let ((value (eval-exp env prog)))
-		 `(((nil ,value)) ,env)))))
+		 (values `(nil ,value) env)))))
 	       
 (defun repl ()
   (let ((env (env-empty)))
@@ -147,13 +147,10 @@
        for prog1 = (read)
        until (eq prog1 :quit)
        do
-	 (let* ((result
-		 (handler-bind
-		     ((error #'(lambda (cond) `(,cond ,env))))
-		   (eval-prog1 env prog1)))
-		(var-values (car result))
-		(new-env (cadr result)))
+	 (multiple-value-bind (var-values new-env)
+	     (handler-case
+		 (eval-prog1 env prog1)
+	       (error (e) `(,e ,env)))
 	   (let ((*print-circle* t))
-	     (format t "~A~%" var-values))
+	     (format t "~a~%" var-values))
 	   (setq env new-env)))))
-
