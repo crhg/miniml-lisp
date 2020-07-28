@@ -1,6 +1,7 @@
 (defpackage miniml-lisp/tests/main
   (:use :cl
         :miniml-lisp
+	:my-util
         :rove))
 (in-package :miniml-lisp/tests/main)
 
@@ -49,22 +50,27 @@
      ((letrec ((f (fun x (if (< x 1) 1 (* x (f (+ x -1)))))))
 	(f 5))
       120)
+     ((quote a)
+      a)
      ))
 
 ;; XXX: 環境をalistで表していることに依存しているのはあまり良くない気もする
 (deftest test-eval-prog1
-  (ok (equal (eval-prog1 '() '1) '(((nil 1)) ())))
-  (ok (equal (eval-prog1 '() '(def ((x 1)))) '(((x 1)) ((x . 1)))))
-  (ok (equal
-       (eval-prog1 '() '(def ((x 1) (y 2))))
-       '(
-	 ((x 1) (y 2))
-	 ((y . 2)(x . 1)))))
-  (ok (equal
-       (eval-prog1
-	'((x . 1))
-	'(def ((x 2) (y x))))
-       '(
-	 ((x 2) (y 1))
-	 ((y . 1)(x . 2)(x . 1))))))
+  (macrolet ((ok-eval-prog1 (env program expected-result expected-env)
+	       (with-gensyms (actual-result actual-env)
+		 `(multiple-value-bind (,actual-result ,actual-env) (eval-prog1 ,env ,program)
+		    (ok (equal ,actual-result ,expected-result))
+		    (ok (equal ,actual-env ,expected-env))))))
+    (ok-eval-prog1 '() '1 '((nil 1)) '())
+    (ok-eval-prog1 '() '(def ((x 1))) '((x 1)) '((x . 1)))
+    (ok-eval-prog1
+     '()
+     '(def ((x 1) (y 2)))
+     '((x 1) (y 2))
+     '((y . 2)(x . 1)))
+    (ok-eval-prog1
+     '((x . 1))
+     '(def ((x 2) (y x)))
+     '((x 2) (y 1))
+     '((y . 1)(x . 2)(x . 1)))))
 

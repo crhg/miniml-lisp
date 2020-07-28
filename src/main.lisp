@@ -69,6 +69,9 @@
 		   (false (eval-exp env ?else))
 		   (t (error
 		       (format nil "Test expression must be boolean: if: ~A" test))))))
+	      ((match ?expr . ?pat-exprs)
+	       (let ((value (eval-exp env ?expr)))
+		 (eval-match env value ?pat-exprs)))
 	      ((let ?binds ?exp)
 	       (let ((new-env
 		      (env-add-binds (eval-binds env ?binds) env)))
@@ -174,7 +177,7 @@
 		 (values bind-values new-env)))
 	      (:_
 	       (let ((value (eval-exp env prog)))
-		 (values `(nil ,value) env)))))
+		 (values `((nil ,value)) env)))))
 	       
 (defun repl ()
   (let ((env (env-empty)))
