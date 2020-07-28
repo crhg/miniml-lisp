@@ -150,7 +150,7 @@
 	 (multiple-value-bind (var-values new-env)
 	     (handler-case
 		 (eval-prog1 env prog1)
-	       (error (e) `(,e ,env)))
+	       (error (e) (values e env)))
 	   (let ((*print-circle* t))
 	     (format t "~a~%" var-values))
 	   (setq env new-env)))))
