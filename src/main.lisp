@@ -180,15 +180,89 @@
 		 (values `((nil ,value)) env)))))
 	       
 (defun repl ()
-  (let ((env (env-empty)))
+  (let ((tyenv (env-empty))
+	(env (env-empty)))
     (loop
        for prog1 = (read)
        until (eq prog1 :quit)
        do
-	 (multiple-value-bind (var-values new-env)
-	     (handler-case
-		 (eval-prog1 env prog1)
-	       (error (e) (values e env)))
-	   (let ((*print-circle* t))
-	     (format t "~a~%" var-values))
-	   (setq env new-env)))))
+	 (handler-case
+	     (multiple-value-bind (var-tys new-tyenv)
+		 (ty-prog1 tyenv prog1)
+	       (multiple-value-bind (var-values new-env)
+		   (handler-case
+		       (eval-prog1 env prog1)
+		     (error (e) (values e env)))
+		 (let ((*print-circle* t))
+		   (format t "~a~%" (mapcar #'(lambda (var-ty var-value)
+						`(,(car var-ty) ,(cadr var-ty) ,(cadr var-value)))
+					    var-tys
+					    var-values)))
+		 (setq tyenv new-tyenv)
+		 (setq env new-env)))
+	   (error (e)
+	     ;; 型エラー
+	     (format t "~a~%" e))))))
+
+(defun ty-exp (tyenv exp)
+  (case-match exp
+	      (:_ :where (numberp exp) 'ty-int)
+	      (true 'ty-bool)
+	      (false 'ty-bool)
+	      (?var :where (symbolp exp) (env-lookup ?var tyenv))
+	      ((?op ?exp1 ?exp2) :where (member ?op '(+ * <))
+	       (let ((ty1 (ty-exp tyenv ?exp1))
+		     (ty2 (ty-exp tyenv ?exp2)))
+		 (ty-prim ?op ty1 ty2)))
+	      ((if ?test ?then ?else)
+	       (let ((ty-test (ty-exp tyenv ?test))
+		     (ty-then (ty-exp tyenv ?then))
+		     (ty-else (ty-exp tyenv ?else)))
+		 (unless (eq ty-test 'ty-bool)
+		   (error (format nil "test must be bool: ~A" ?test)))
+		 (unless (equal ty-then ty-else)
+		   (error (format nil "then and else must be same type: ~A:~A ~A:~A" ?then ty-then ?else ty-else)))
+		 ty-then))
+	      (:_ (error (format nil "not implemented: ~A" exp)))))
+
+(defun ty-prim (op ty1 ty2)
+  (case op
+    (+ (unless (eq ty1 'ty-int)
+	 (error "lhs of + must be ty-int"))
+       (unless (eq ty2 'ty-int)
+	 (error "rhs of + must be ty-int"))
+       'ty-int)
+    (* (unless (eq ty1 'ty-int)
+	 (error "lhs of * must be ty-int"))
+       (unless (eq ty2 'ty-int)
+	 (error "rhs of * must be ty-int"))
+       'ty-int)
+    (< (unless (eq ty1 'ty-int)
+	 (error "lhs of < must be ty-int"))
+       (unless (eq ty2 'ty-int)
+	 (error "rhs of < must be ty-int"))
+       'ty-int)
+    (t (error (format nil "not implemented operator: ~A" op)))))
+    
+;; progにtyenvのもとで型を付けて
+;; (<結果> <新しい型環境>の形のリストを返す。
+;; <結果>はprogが
+;; (def ((v1 e1) (v2 e2)...)) のとき ((v1 <e1の型>) (v2 <e2の型>)...)で
+;; <式>のときは ((nil <式の型>)) である
+(defun ty-prog1 (tyenv prog)
+  (case-match prog
+	      ((def ?binds)
+	       (let* ((bind-tys (ty-binds tyenv ?binds))
+		      (new-tyenv (env-add-binds bind-tys tyenv)))
+		 (values bind-tys new-tyenv)))
+	      ((defrec ?binds)
+	       (error "not implemented(ty-prog1): ~A" prog))
+	      (:_
+	       (let ((ty (ty-exp tyenv prog)))
+		 (values `((nil ,ty)) tyenv)))))
+
+(defun ty-binds (tyenv binds)
+  (mapcar #'(lambda (bind)
+	      (dbind (var exp) bind
+		`(,var ,(ty-exp tyenv exp))))
+	  binds))
