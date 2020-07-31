@@ -241,7 +241,7 @@
 	 (error "lhs of < must be ty-int"))
        (unless (eq ty2 'ty-int)
 	 (error "rhs of < must be ty-int"))
-       'ty-int)
+       'ty-bool)
     (t (error (format nil "not implemented operator: ~A" op)))))
     
 ;; progにtyenvのもとで型を付けて
