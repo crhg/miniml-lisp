@@ -1,8 +1,10 @@
 (defpackage miniml-lisp
-  (:use :cl :my-util/case-match :my-util/dbind)
+  (:use :cl :my-util/case-match :my-util/dbind :let-over-lambda :let-plus)
   (:export
    eval-exp eval-prog1
-   true false if let letrec def fun))
+   true false if let letrec def fun
+   ty-int ty-bool ty-fun
+   fresh-tyvar subst-find subst-type unify))
 (in-package :miniml-lisp)
 
 (defun boolp (x)
@@ -205,51 +207,49 @@
 	     (format t "~a~%" e))))))
 
 (defun ty-exp (tyenv exp)
+  "型環境TYENVと式EXPから型代入とEXPの型を返す"
   (case-match exp
-	      (:_ :where (numberp exp) 'ty-int)
-	      (true 'ty-bool)
-	      (false 'ty-bool)
-	      (?var :where (symbolp exp) (env-lookup ?var tyenv))
+	      (:_ :where (numberp exp) (values '() 'ty-int))
+	      (true (values '() 'ty-bool))
+	      (false (values '() 'ty-bool))
+	      (?var :where (symbolp exp)
+		    (aif (env-lookup ?var tyenv)
+			 (values '() it)
+			 (error (format nil "variable not bound: ~A" ?var))))
 	      ((?op ?exp1 ?exp2) :where (member ?op '(+ * <))
-	       (let ((ty1 (ty-exp tyenv ?exp1))
-		     (ty2 (ty-exp tyenv ?exp2)))
-		 (ty-prim ?op ty1 ty2)))
+	       (let+ (((&values s1 ty1) (ty-exp tyenv ?exp1))
+		      ((&values s2 ty2) (ty-exp tyenv ?exp2))
+		      ((&values eqs3 ty) (ty-prim ?op ty1 ty2))
+		      (eqs `(,@(eqs-of-subst s1) ,@(eqs-of-subst s2) ,@eqs3))
+		      (s3 (unify eqs)))
+		     (values s3 (subst-type s3 ty))))
 	      ((if ?test ?then ?else)
-	       (let ((ty-test (ty-exp tyenv ?test))
-		     (ty-then (ty-exp tyenv ?then))
-		     (ty-else (ty-exp tyenv ?else)))
-		 (unless (eq ty-test 'ty-bool)
-		   (error (format nil "test must be bool: ~A" ?test)))
-		 (unless (equal ty-then ty-else)
-		   (error (format nil "then and else must be same type: ~A:~A ~A:~A" ?then ty-then ?else ty-else)))
-		 ty-then))
+	       (let+ (((&values s-test ty-test) (ty-exp tyenv ?test))
+		      ((&values s-then ty-then) (ty-exp tyenv ?then))
+		      ((&values s-else ty-else) (ty-exp tyenv ?else))
+		      (eqs `(,@(eqs-of-subst s-test)
+			       ,@(eqs-of-subst s-then)
+			       ,@(eqs-of-subst s-else)
+			       (,ty-test ty-bool)
+			       (,ty-then ,ty-else)))
+		      (s (unify eqs)))
+		     (values s (subst-type s ty-then))))
 	      (:_ (error (format nil "not implemented: ~A" exp)))))
 
 (defun ty-prim (op ty1 ty2)
+  "演算子OPが生成すべきTY1,TY2に対する制約集合と返値の型を返す"
   (case op
-    (+ (unless (eq ty1 'ty-int)
-	 (error "lhs of + must be ty-int"))
-       (unless (eq ty2 'ty-int)
-	 (error "rhs of + must be ty-int"))
-       'ty-int)
-    (* (unless (eq ty1 'ty-int)
-	 (error "lhs of * must be ty-int"))
-       (unless (eq ty2 'ty-int)
-	 (error "rhs of * must be ty-int"))
-       'ty-int)
-    (< (unless (eq ty1 'ty-int)
-	 (error "lhs of < must be ty-int"))
-       (unless (eq ty2 'ty-int)
-	 (error "rhs of < must be ty-int"))
-       'ty-bool)
+    (+ (values `((,ty1 ty-int) (,ty2 ty-int)) 'ty-int))
+    (* (values `((,ty1 ty-int) (,ty2 ty-int)) 'ty-int))
+    (< (values `((,ty1 ty-int) (,ty2 ty-int)) 'ty-bool))
     (t (error (format nil "not implemented operator: ~A" op)))))
     
-;; progにtyenvのもとで型を付けて
-;; (<結果> <新しい型環境>の形のリストを返す。
-;; <結果>はprogが
-;; (def ((v1 e1) (v2 e2)...)) のとき ((v1 <e1の型>) (v2 <e2の型>)...)で
-;; <式>のときは ((nil <式の型>)) である
 (defun ty-prog1 (tyenv prog)
+  "PROGにTYENVのもとで型を付けて
+   (<結果> <新しい型環境>)の形のリストを返す。
+   <結果>はPROGが
+   (DEF ((v1 e1) (v2 e2)...)) のとき ((v1 <e1の型>) (v2 <e2の型>)...)で
+   <式>のときは ((NIL <式の型>)) である"
   (case-match prog
 	      ((def ?binds)
 	       (let* ((bind-tys (ty-binds tyenv ?binds))
@@ -258,11 +258,82 @@
 	      ((defrec ?binds)
 	       (error "not implemented(ty-prog1): ~A" prog))
 	      (:_
-	       (let ((ty (ty-exp tyenv prog)))
+	       (let+ (((&values &ign ty) (ty-exp tyenv prog)))
 		 (values `((nil ,ty)) tyenv)))))
 
 (defun ty-binds (tyenv binds)
   (mapcar #'(lambda (bind)
-	      (dbind (var exp) bind
-		`(,var ,(ty-exp tyenv exp))))
+	      (let+ (((var exp) bind)
+		     ((&values &ign ty) (ty-exp tyenv exp)))
+		    `(,var ,ty)))
 	  binds))
+
+(defun fresh-tyvar ()
+  "新しい型変数を返します"
+
+  `(ty-var ,(gensym)))
+
+(defun freevar-ty (ty)
+  "型TYに含まれる自由な型変数のリストを返します"
+  
+  (case-match ty
+	      (ty-int '())
+	      (ty-bool '())
+	      ((ty-var :_) `(,ty))
+	      ((ty-fun ?ty1 ?ty2) (union (freevar-ty ?ty1) (freevar-ty ?ty2)))))
+
+(defun subst-find (subst tyvar)
+  "SUBST ((tyvar1 ty1) ...) から TYVARについてのものを探す。
+   戻り値は(tyvar_i ty_i)の形のリスト。見つからなければNIL"
+  
+  (find-if #'(lambda (s) (eq (car s) tyvar))
+	   subst ))
+
+(defun subst-type (subst ty)
+  "TYの中の型変数をSUBSTに基づいて置き換えます"
+
+  (case-match ty
+	      (ty-int 'ty-int)
+	      (ty-bool 'ty-bool)
+	      ((ty-var :_)
+	       (aif (subst-find subst ty)
+		    (subst-type subst (cadr it))
+		    ty))
+	      ((ty-fun ?ty1 ?ty2)
+	       `(ty-fun (subst-type subst ?ty1) (subst-type subst ?ty2)))))
+
+(defun eqs-of-subst (subst) subst)
+
+(defun subst-eqs (subst ty-eqs)
+  "型等式リストTY-EQSに現れる型を型代入SUBSTに基づいて置き換えます"
+  
+  (mapcar #'(lambda (equation)
+	      (dbind (ty1 ty2) equation
+		`(,(subst-type subst ty1) ,(subst-type subst ty2))))
+	  ty-eqs))
+	       
+(defun unify (ty-eqs)
+  "与えられた型等式リストが全て等しくなる型代入を求めます"
+  
+  (if (null ty-eqs)
+      '()
+      (dbind (ty-eq . rest) ty-eqs
+	(dbind (ty1 ty2) ty-eq
+	  (case-match ty-eq
+		      ((?ty1 ?ty2) :where (equal ?ty1 ?ty2)
+		       (unify rest))
+		      (((ty-fun ?ty11 ?ty12) (ty-fun ?ty21 ?ty22))
+		       (format nil "~A ~A ~A ~A" ?ty11 ?ty12 ?ty21 ?ty22)
+		       (unify `((,?ty11 ,?ty21) (,?ty12 ,?ty22) ,@rest)))
+		      (((ty-var :_) :_)
+		       (when (member ty1 (freevar-ty ty2))
+			 (error (format nil "occur check failed: ~A ~A" ty1 ty2)))
+		       (let*
+			   ((subst1 `(,ty1 ,ty2))
+			    (subst `(,subst1))
+			    (substed-rest (subst-eqs subst rest)))
+			 `(,subst1 ,@(unify substed-rest))))
+		      ((:_ (ty-var :_))
+		       (unify `((,ty2 ,ty1) ,@rest)))
+		      (:_
+		       (error (format nil "cannot unify: ~A ~A" ty1 ty2))))))))

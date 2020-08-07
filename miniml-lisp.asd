@@ -2,7 +2,7 @@
   :version "0.1.0"
   :author "manabu.matsui@gmail.com"
   :license "MIT"
-  :depends-on ("my-util")
+  :depends-on ("my-util" "let-over-lambda" "let-plus")
   :components ((:module "src"
                 :components
                 ((:file "main"))))
