@@ -1,8 +1,10 @@
 (defpackage miniml-lisp/tests/main
-  (:use :cl
-        :miniml-lisp
-	:my-util
-        :rove))
+  (:use
+   :cl
+   :miniml-lisp
+   :my-util
+   :rove
+   :let-plus))
 (in-package :miniml-lisp/tests/main)
 
 ;; NOTE: To run this test file, execute `(asdf:test-system :miniml-lisp)' in your Lisp.
@@ -124,3 +126,17 @@
     (ok (equal (unify `(((ty-fun ,tyvar1 ty-int) (ty-fun ty-int ty-int))))
 	       `((,tyvar1 ty-int))))
     ))
+
+(deftest test-ty-exp
+  (macrolet ((ok-ty-exp (exp expected-type)
+	       (with-gensyms (subst ty)
+	       `(ok (let+ (((&values ,subst ,ty) (ty-exp '() ',exp)))
+		      (equal (subst-type ,subst ,ty) ',expected-type))))))
+    (ok-ty-exp 1 ty-int)
+    (ok-ty-exp true ty-bool)
+    (ok-ty-exp (+ 1 2) ty-int)
+    (ok-ty-exp (if true 1 1) ty-int)
+    (ok-ty-exp (fun x (+ x 1)) (ty-fun ty-int ty-int))
+))
+
+

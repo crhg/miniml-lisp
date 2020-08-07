@@ -4,7 +4,7 @@
    eval-exp eval-prog1
    true false if let letrec def fun
    ty-int ty-bool ty-fun
-   fresh-tyvar subst-find subst-type unify))
+   ty-exp fresh-tyvar subst-find subst-type unify))
 (in-package :miniml-lisp)
 
 (defun boolp (x)
@@ -234,6 +234,10 @@
 			       (,ty-then ,ty-else)))
 		      (s (unify eqs)))
 		     (values s (subst-type s ty-then))))
+	      ((fun ?var ?exp)
+	       (let+ ((ty-var (fresh-tyvar))
+		      ((&values s ty) (ty-exp (env-add ?var ty-var tyenv) ?exp)))
+		 (values s (subst-type s `(ty-fun ,ty-var ,ty)))))
 	      (:_ (error (format nil "not implemented: ~A" exp)))))
 
 (defun ty-prim (op ty1 ty2)
@@ -300,7 +304,7 @@
 		    (subst-type subst (cadr it))
 		    ty))
 	      ((ty-fun ?ty1 ?ty2)
-	       `(ty-fun (subst-type subst ?ty1) (subst-type subst ?ty2)))))
+	       `(ty-fun ,(subst-type subst ?ty1) ,(subst-type subst ?ty2)))))
 
 (defun eqs-of-subst (subst) subst)
 
