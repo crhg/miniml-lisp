@@ -137,6 +137,7 @@
     (ok-ty-exp (+ 1 2) ty-int)
     (ok-ty-exp (if true 1 1) ty-int)
     (ok-ty-exp (fun x (+ x 1)) (ty-fun ty-int ty-int))
+    (ok-ty-exp ((fun x x) 1) ty-int)
 ))
 
 
