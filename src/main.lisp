@@ -238,6 +238,13 @@
 	       (let+ ((ty-var (fresh-tyvar))
 		      ((&values s ty) (ty-exp (env-add ?var ty-var tyenv) ?exp)))
 		 (values s (subst-type s `(ty-fun ,ty-var ,ty)))))
+	      ((let ?binds ?exp)
+	       (let+ (((&values s-binds ty-binds) (ty-binds tyenv ?binds))
+		      (new-tyenv (env-add-binds ty-binds tyenv))
+		      ((&values s-exp ty-exp) (ty-exp new-tyenv ?exp))
+		      (eqs `(,@(eqs-of-subst s-binds) ,@(eqs-of-subst s-exp)))
+		      (s (unify eqs)))
+		 (values s (subst-type s ty-exp))))
 	      ((?fun ?operand)
 	       (let+ (((&values s-fun ty-fun) (ty-exp tyenv ?fun))
 		      ((&values s-operand ty-operand) (ty-exp tyenv ?operand))
@@ -250,6 +257,15 @@
 		      (s (unify eqs)))
 		 (values s (subst-type s ty2))))
 	      (:_ (error (format nil "not implemented: ~A" exp)))))
+
+(defun ty-binds (tyenv binds)
+  "束縛binds=((var1 exp1)...)と型環境tyenvから型代入と各変数の型のリスト=((var1 ty1)...)を返す"
+  (if (null binds)
+      (values '() '())
+      (let+ ((((var exp) . rest) binds)
+	     ((&values s-exp ty-exp) (ty-exp tyenv exp))
+	     ((&values s-rest tys-rest) (ty-binds tyenv rest)))
+	(values (append s-exp s-rest) `((,var ,ty-exp) ,@tys-rest)))))
 
 (defun ty-prim (op ty1 ty2)
   "演算子OPが生成すべきTY1,TY2に対する制約集合と返値の型を返す"
@@ -267,7 +283,7 @@
    <式>のときは ((NIL <式の型>)) である"
   (case-match prog
 	      ((def ?binds)
-	       (let* ((bind-tys (ty-binds tyenv ?binds))
+	       (let+ (((&values &ign bind-tys) (ty-binds tyenv ?binds))
 		      (new-tyenv (env-add-binds bind-tys tyenv)))
 		 (values bind-tys new-tyenv)))
 	      ((defrec ?binds)
@@ -275,13 +291,6 @@
 	      (:_
 	       (let+ (((&values &ign ty) (ty-exp tyenv prog)))
 		 (values `((nil ,ty)) tyenv)))))
-
-(defun ty-binds (tyenv binds)
-  (mapcar #'(lambda (bind)
-	      (let+ (((var exp) bind)
-		     ((&values &ign ty) (ty-exp tyenv exp)))
-		    `(,var ,ty)))
-	  binds))
 
 (defun fresh-tyvar ()
   "新しい型変数を返します"

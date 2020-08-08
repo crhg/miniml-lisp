@@ -138,6 +138,9 @@
     (ok-ty-exp (if true 1 1) ty-int)
     (ok-ty-exp (fun x (+ x 1)) (ty-fun ty-int ty-int))
     (ok-ty-exp ((fun x x) 1) ty-int)
+    (ok-ty-exp (let ((x 1)) x) ty-int)
+    (ok-ty-exp (let ((f (fun x x))) (f 1)) ty-int)
+    (ok-ty-exp (let ((x 1) (y 2)) (+ x y)) ty-int)
 ))
 
 
