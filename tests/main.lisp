@@ -124,8 +124,7 @@
     (ok (equal (unify `(((ty-fun ty-int ty-bool) (ty-fun ty-int ty-bool))))
 	       '()))
     (ok (equal (unify `(((ty-fun ,tyvar1 ty-int) (ty-fun ty-int ty-int))))
-	       `((,tyvar1 ty-int))))
-    ))
+	       `((,tyvar1 ty-int))))))
 
 (deftest test-ty-exp
   (macrolet ((ok-ty-exp (exp expected-type)
@@ -141,6 +140,10 @@
     (ok-ty-exp (let ((x 1)) x) ty-int)
     (ok-ty-exp (let ((f (fun x x))) (f 1)) ty-int)
     (ok-ty-exp (let ((x 1) (y 2)) (+ x y)) ty-int)
+    (ok-ty-exp
+     (let ((f (fun x x)))
+       (if (f true) 1 (f 2)))
+     ty-int)
 ))
 
 

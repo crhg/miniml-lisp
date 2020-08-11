@@ -41,6 +41,13 @@
 	binds)
   env)
 
+(defun env-map (f env)
+  "idとvalueを引数にとる関数FをENVのidとvalueに適用した結果のリスト"
+  (mapcar #'(lambda (e)
+	      (dbind (id . value) e
+		(funcall f id value)))
+	  env))
+
 (defun make-closure (var exp env)
   `(closure ,var ,exp ,env))
 
@@ -214,7 +221,10 @@
 	      (false (values '() 'ty-bool))
 	      (?var :where (symbolp exp)
 		    (aif (env-lookup ?var tyenv)
-			 (values '() it)
+			 (let+ ((tyvars (vars-of-tysc it))
+				(s (mapcar #'(lambda (v) `(,v ,(fresh-tyvar))) tyvars))
+				(ty (ty-of-tysc it)))
+			   (values '() (subst-type s ty)))
 			 (error (format nil "variable not bound: ~A" ?var))))
 	      ((?op ?exp1 ?exp2) :where (member ?op '(+ * <))
 	       (let+ (((&values s1 ty1) (ty-exp tyenv ?exp1))
@@ -236,7 +246,8 @@
 		 (values s (subst-type s ty-then))))
 	      ((fun ?var ?exp)
 	       (let+ ((ty-var (fresh-tyvar))
-		      ((&values s ty) (ty-exp (env-add ?var ty-var tyenv) ?exp)))
+		      (tysc-var (tysc-of-ty ty-var))
+		      ((&values s ty) (ty-exp (env-add ?var tysc-var tyenv) ?exp)))
 		 (values s (subst-type s `(ty-fun ,ty-var ,ty)))))
 	      ((let ?binds ?exp)
 	       (let+ (((&values s-binds ty-binds) (ty-binds tyenv ?binds))
@@ -264,8 +275,10 @@
       (values '() '())
       (let+ ((((var exp) . rest) binds)
 	     ((&values s-exp ty-exp) (ty-exp tyenv exp))
-	     ((&values s-rest tys-rest) (ty-binds tyenv rest)))
-	(values (append s-exp s-rest) `((,var ,ty-exp) ,@tys-rest)))))
+	     ((&values s-rest tys-rest) (ty-binds tyenv rest))
+	     (tysc (ty-closure ty-exp tyenv s-exp)))
+	(values (append s-exp s-rest)
+		`((,var ,tysc) ,@tys-rest)))))
 
 (defun ty-prim (op ty1 ty2)
   "演算子OPが生成すべきTY1,TY2に対する制約集合と返値の型を返す"
@@ -361,3 +374,55 @@
 		       (unify `((,ty2 ,ty1) ,@rest)))
 		      (:_
 		       (error (format nil "cannot unify: ~A ~A" ty1 ty2))))))))
+
+(defun make-tysc (vars ty)
+  `(,vars ,ty))
+
+(defun tysc-of-ty (ty)
+  "型TYを何も束縛しない型スキームに変換する"
+  `(() ,ty))
+
+(defun ty-of-tysc (tysc)
+  "型スキームの型"
+  (cadr tysc))
+
+(defun vars-of-tysc (tysc)
+  "型スキームが束縛する型変数"
+  (car tysc))
+
+(defun freevar-of-tysc (tysc)
+  "型スキームTYSCに含まれる自由な型変数のリスト"
+  (set-difference (freevar-ty (ty-of-tysc tysc))
+		  (vars-of-tysc tysc)
+		  :test #'equal))
+
+;;; (* New! 下の説明を参照 *)
+;;; let closure ty tyenv subst =
+;;;   let fv_tyenv' = freevar_tyenv tyenv in
+;;;   let fv_tyenv =
+;;;     MySet.bigunion
+;;;       (MySet.map
+;;;          (fun id -> freevar_ty (subst_type subst (TyVar id)))
+;;;          fv_tyenv') in
+;;;  let ids = MySet.diff (freevar_ty ty) fv_tyenv in
+;;;     TyScheme (MySet.to_list ids, ty)
+
+(defun ty-closure (ty tyenv subst)
+  "型TYの自由な型変数から型環境TYENVに出現する自由な型変数を型置換SUBSTで置換したものに既に出現する型変数を取り除いて束縛した型スキーム"
+  (let+ ((fv-tyenv (freevar-tyenv tyenv))
+	 (substed-fv-tyenv (apply #'big-union
+				  (mapcar #'(lambda (var) (freevar-ty (subst-type subst var)))
+					  fv-tyenv)))
+	 (vars (set-difference (freevar-ty ty) substed-fv-tyenv :test #'equal)))
+    (make-tysc vars ty)))
+
+(defun freevar-tyenv (tyenv)
+  "TYENVに現れる全ての型スキームに含まれる自由な型変数のリスト"
+  (apply #'big-union
+	 (env-map #'(lambda (var tysc)
+		      (declare (ignore var))
+		      (freevar-of-tysc tysc))
+		  tyenv)))
+
+(defun big-union (&rest sets)
+  (reduce #'union sets :initial-value '()))
