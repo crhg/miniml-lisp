@@ -2,7 +2,7 @@
   (:use :cl :my-util/case-match :my-util :my-util/dbind :let-over-lambda :let-plus)
   (:export
    eval-exp eval-prog1
-   true false if let letrec def fun
+   true false if let letrec def fun hoge
    ty-int ty-bool ty-fun
    ty-exp fresh-tyvar subst-find subst-type unify))
 (in-package :miniml-lisp)
@@ -263,6 +263,27 @@
 		      (new-tyenv (env-adds vars tyscs tyenv))
 		      ((&values s-exp ty-exp) (ty-exp new-tyenv ?exp))
 		      (eqs `(,@(mapcan #'eqs-of-subst substs) ,@(eqs-of-subst s-exp)))
+		      (s (unify eqs)))
+		 (values s (subst-type s ty-exp))))
+	      ((letrec ?binds ?exp)
+	       (let+ ((vars (mapcar #'car ?binds))
+		      (exps (mapcar #'cadr ?binds))
+		      (var-tys (mapcar #'(lambda (v)
+					   (declare (ignore v))
+					   (fresh-tyvar))
+				       vars))
+		      (var-tyscs (mapcar #'tysc-of-ty var-tys))
+		      (temp-tyenv (env-adds vars var-tyscs tyenv))
+		      ((&values substs tys)
+		       (mb-mapcar #'(lambda (exp) (ty-exp temp-tyenv exp))
+				  exps))
+		      (tyscs (mapcar #'(lambda (s ty) (ty-closure ty temp-tyenv s)) substs tys))
+		      (new-tyenv (env-adds vars tyscs tyenv))
+		      ((&values s-exp ty-exp) (ty-exp new-tyenv ?exp))
+		      (eqs
+		       `(,@(mapcar #'(lambda (t1 t2) `(,t1 ,t2)) var-tys tys)
+			 ,@(mapcan #'eqs-of-subst substs)
+			 ,@(eqs-of-subst s-exp)))
 		      (s (unify eqs)))
 		 (values s (subst-type s ty-exp))))
 	      ((?fun ?operand)

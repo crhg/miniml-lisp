@@ -144,6 +144,14 @@
      (let ((f (fun x x)))
        (if (f true) 1 (f 2)))
      ty-int)
+    (ok-ty-exp
+     (letrec ((f (fun x x)))
+       (if (f true) 1 (f 2)))
+     ty-int)
+    (ok-ty-exp
+     (letrec ((f (fun x (if (< x 1) 1 (* x (f (+ x -1)))))))
+	     (f 5))
+     ty-int)
 ))
 
 
