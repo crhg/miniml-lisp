@@ -19,6 +19,10 @@
 (defun env-add (id value env)
   (acons id value env))
 
+(defun env-adds (ids values env)
+  "IDSとVALUESを先頭からそれぞれ組み合わせてENVに追加した環境を返す"
+  (env-add-binds (mapcar #'list ids values) env))
+
 (defun env-add-binds (binds env)
   (reduce
    #'(lambda (env bind)
@@ -250,10 +254,15 @@
 		      ((&values s ty) (ty-exp (env-add ?var tysc-var tyenv) ?exp)))
 		 (values s (subst-type s `(ty-fun ,ty-var ,ty)))))
 	      ((let ?binds ?exp)
-	       (let+ (((&values s-binds ty-binds) (ty-binds tyenv ?binds))
-		      (new-tyenv (env-add-binds ty-binds tyenv))
+	       (let+ ((vars (mapcar #'car ?binds))
+		      (exps (mapcar #'cadr ?binds))
+		      ((&values substs tys)
+		       (mb-mapcar #'(lambda (exp) (ty-exp tyenv exp))
+				  exps))
+		      (tyscs (mapcar #'(lambda (s ty) (ty-closure ty tyenv s)) substs tys))
+		      (new-tyenv (env-adds vars tyscs tyenv))
 		      ((&values s-exp ty-exp) (ty-exp new-tyenv ?exp))
-		      (eqs `(,@(eqs-of-subst s-binds) ,@(eqs-of-subst s-exp)))
+		      (eqs `(,@(mapcan #'eqs-of-subst substs) ,@(eqs-of-subst s-exp)))
 		      (s (unify eqs)))
 		 (values s (subst-type s ty-exp))))
 	      ((?fun ?operand)
