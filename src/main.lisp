@@ -196,26 +196,32 @@
   (let ((tyenv (env-empty))
 	(env (env-empty)))
     (loop
-       for prog1 = (read)
-       until (eq prog1 :quit)
-       do
-	 (handler-case
-	     (multiple-value-bind (var-tys new-tyenv)
-		 (ty-prog1 tyenv prog1)
-	       (multiple-value-bind (var-values new-env)
-		   (handler-case
-		       (eval-prog1 env prog1)
-		     (error (e) (values e env)))
-		 (let ((*print-circle* t))
-		   (format t "~a~%" (mapcar #'(lambda (var-ty var-value)
-						`(,(car var-ty) ,(cadr var-ty) ,(cadr var-value)))
-					    var-tys
-					    var-values)))
-		 (setq tyenv new-tyenv)
-		 (setq env new-env)))
-	   (error (e)
-	     ;; 型エラー
-	     (format t "~a~%" e))))))
+      for prog1 = (read)
+      until (eq prog1 :quit)
+      do
+	 (case prog1
+	   (:env
+	    (let ((*print-circle* t))
+	      (format t "~a~%" env)
+	      (format t "~a~%" tyenv)))
+	   (otherwise
+	    (handler-case
+		(multiple-value-bind (var-tys new-tyenv)
+		    (ty-prog1 tyenv prog1)
+		  (multiple-value-bind (var-values new-env)
+		      (handler-case
+			  (eval-prog1 env prog1)
+			(error (e) (values e env)))
+		    (let ((*print-circle* t))
+		      (format t "~a~%" (mapcar #'(lambda (var-ty var-value)
+						   `(,(car var-ty) ,(cadr var-ty) ,(cadr var-value)))
+					       var-tys
+					       var-values)))
+		    (setq tyenv new-tyenv)
+		    (setq env new-env)))
+	      (error (e)
+		;; 型エラー
+		(format t "~a~%" e))))))))
 
 (defun ty-exp (tyenv exp)
   "型環境TYENVと式EXPから型代入とEXPの型を返す"
@@ -326,9 +332,20 @@
    <式>のときは ((NIL <式の型>)) である"
   (case-match prog
     ((def ?binds)
-     (let+ (((&values &ign bind-tys) (ty-binds tyenv ?binds))
-	    (new-tyenv (env-add-binds bind-tys tyenv)))
-       (values bind-tys new-tyenv)))
+     (let+ ((vars (mapcar #'car ?binds))
+	    (exps (mapcar #'cadr ?binds))
+	    ((&values substs tys)
+	      (mb-mapcar #'(lambda (exp) (ty-exp tyenv exp))
+			 exps))
+	    (tyscs (mapcar #'(lambda (s ty) (ty-closure ty tyenv s)) substs tys))
+	    (eqs (mapcan #'eqs-of-subst substs))
+	    (s (unify eqs))
+	    (new-tyenv (subst-tyenv s (env-adds vars tyscs tyenv))))
+       (values
+	(mapcar #'(lambda (var)
+		    `(,var ,(ty-of-tysc (env-lookup var new-tyenv))))
+		vars)
+	new-tyenv)))
     ((defrec ?binds)
      (error "not implemented(ty-prog1): ~A" prog))
     (:_
@@ -369,6 +386,12 @@
     ((ty-fun ?ty1 ?ty2)
      `(ty-fun ,(subst-type subst ?ty1) ,(subst-type subst ?ty2)))))
 
+(defun subst-tysc (subst tysc)
+  "型スキームTYSCの中の型変数を型代入SUBSTで置き換えます。
+   TYSCが束縛する型変数はSUBSTに現れないものとします"
+  (make-tysc (vars-of-tysc tysc)
+	     (subst-type subst (ty-of-tysc tysc))))
+
 (defun eqs-of-subst (subst) subst)
 
 (defun subst-eqs (subst ty-eqs)
@@ -378,7 +401,15 @@
 	      (dbind (ty1 ty2) equation
 		`(,(subst-type subst ty1) ,(subst-type subst ty2))))
 	  ty-eqs))
-	       
+
+(defun subst-tyenv (subst tyenv)
+  "型環境TYENVの型スキームの型を型代入リストSUBSTに基づいて置き換た型環境を返します"
+  (env-add-binds
+   (reverse (env-map #'(lambda (id tysc)
+			 `(,id ,(subst-tysc subst tysc)))
+		     tyenv))
+   (env-empty)))
+
 (defun unify (ty-eqs)
   "与えられた型等式リストが全て等しくなる型代入を求めます"
   
