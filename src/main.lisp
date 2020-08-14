@@ -177,20 +177,20 @@
 ;; <式>のときは ((nil <式の値>)) である
 (defun eval-prog1 (env prog)
   (case-match prog
-	      ((def ?binds)
-	       (let* ((bind-values (eval-binds env ?binds))
-		      (new-env (env-add-binds bind-values env)))
-		 (values bind-values new-env)))
-	      ((defrec ?binds)
-	       (let* ((dummy-env
-		       (env-add-binds (dummy-binds ?binds) env))
-		      (bind-values (eval-binds dummy-env ?binds))
-		      (new-env
-		       (env-overwrite-binds bind-values dummy-env)))
-		 (values bind-values new-env)))
-	      (:_
-	       (let ((value (eval-exp env prog)))
-		 (values `((nil ,value)) env)))))
+    ((def ?binds)
+     (let* ((bind-values (eval-binds env ?binds))
+	    (new-env (env-add-binds bind-values env)))
+       (values bind-values new-env)))
+    ((defrec ?binds)
+     (let* ((dummy-env
+	      (env-add-binds (dummy-binds ?binds) env))
+	    (bind-values (eval-binds dummy-env ?binds))
+	    (new-env
+	      (env-overwrite-binds bind-values dummy-env)))
+       (values bind-values new-env)))
+    (:_
+     (let ((value (eval-exp env prog)))
+       (values `((nil ,value)) env)))))
 	       
 (defun repl ()
   (let ((tyenv (env-empty))
