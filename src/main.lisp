@@ -421,7 +421,6 @@
 	    ((?ty1 ?ty2) :where (equal ?ty1 ?ty2)
 	     (unify rest))
 	    (((ty-fun ?ty11 ?ty12) (ty-fun ?ty21 ?ty22))
-	     (format nil "~A ~A ~A ~A" ?ty11 ?ty12 ?ty21 ?ty22)
 	     (unify `((,?ty11 ,?ty21) (,?ty12 ,?ty22) ,@rest)))
 	    (((ty-var :_) :_)
 	     (when (member ty1 (freevar-ty ty2))
