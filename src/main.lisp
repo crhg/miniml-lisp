@@ -9,6 +9,17 @@
    #:ty-exp #:fresh-tyvar #:subst-find #:subst-type #:unify))
 (in-package :miniml-lisp)
 
+(define-condition miniml-error (simple-error)
+  ((fmt :initarg :fmt :reader miniml-error-fmt)
+   (args :initarg :args :reader miniml-error-args))
+  (:report (lambda (condition stream)
+	     (apply #'format stream
+		    (miniml-error-fmt condition)
+		    (miniml-error-args condition)))))
+
+(defmacro make-miniml-error (fmt &rest args)
+  `(make-condition 'miniml-error :fmt ,fmt :args (list ,@args)))
+
 (defun boolp (x)
   (or (eq x 'true)
       (eq x 'false)))
@@ -16,7 +27,9 @@
 (defun env-empty () '())
 
 (defun env-lookup (x env)
-  (cdr (assoc x env)))
+  (aif (assoc x env)
+       (cdr it)
+       (error (make-miniml-error "env-lookup: not found ~A in ~A" x env))))
        
 (defun env-add (id value env)
   (acons id value env))
@@ -37,7 +50,7 @@
   (let ((found (assoc id env)))
     (if found
 	(setf (cdr (assoc id env)) value)
-	(error (format nil "env-set not found : ~A" id)))
+	(error (make-miniml-error "env-set not found : ~A" id)))
     env))
 
 (defun env-overwrite-binds (binds env)
@@ -83,7 +96,7 @@
 	 (true (eval-exp env ?then))
 	 (false (eval-exp env ?else))
 	 (t (error
-	     (format nil "Test expression must be boolean: if: ~A" test))))))
+	     (make-miniml-error "Test expression must be boolean: if: ~A" test))))))
     ((match ?expr . ?pat-exprs)
      (let ((value (eval-exp env ?expr)))
        (eval-match env value ?pat-exprs)))
@@ -105,9 +118,9 @@
        (if (is-closure val1)
 	   (eval-exp (env-add (closure-var val1) val2 (closure-env val1))
 		     (closure-exp val1))
-	   (error (format nil "Cannot apply: ~A" val1)))))
+	   (error (make-miniml-error "Cannot apply: ~A" val1)))))
     (:_
-     (error (format nil "Cannot eval: ~A" exp)))))
+     (error (make-miniml-error "Cannot eval: ~A" exp)))))
 
 (defun eval-binds (env binds)
   (mapcar #'(lambda (bind)
@@ -141,11 +154,11 @@
 	     (error (format nil "right must be number(<): ~A" right-value)))
 	 (if (< left-value right-value) 'true 'false))
       (cons (cons left-value right-value))
-      (t (error (format nil "unknown operator: ~A" op))))))
+      (t (error (make-miniml-error "unknown operator: ~A" op))))))
 
 (defun eval-match (env value pat-exps)
   (if (null pat-exps)
-      (error (format nil "no match"))
+      (error (make-miniml-error "no match"))
       (dbind ((pat exp) . rest) pat-exps
 	(multiple-value-bind (matched binds) (match pat value)
 	  (if matched
@@ -170,7 +183,7 @@
 		     (values nil '())))
 	       (values nil '())))
 	 (values nil '())))
-    (:_ (error (format nil "invalid pattern: ~A" pat)))))
+    (:_ (error (make-miniml-error "invalid pattern: ~A" pat)))))
 
 ;; progをenvのもとで評価して
 ;; (<結果> <新しい環境)の形のリストを返す。
@@ -211,9 +224,7 @@
 		(multiple-value-bind (var-tys new-tyenv)
 		    (ty-prog1 tyenv prog1)
 		  (multiple-value-bind (var-values new-env)
-		      (handler-case
-			  (eval-prog1 env prog1)
-			(error (e) (values e env)))
+		      (eval-prog1 env prog1)
 		    (let ((*print-circle* t))
 		      (format t "~a~%" (mapcar #'(lambda (var-ty var-value)
 						   `(,(car var-ty) ,(cadr var-ty) ,(cadr var-value)))
@@ -221,7 +232,7 @@
 					       var-values)))
 		    (setq tyenv new-tyenv)
 		    (setq env new-env)))
-	      (error (e)
+	      (miniml-error (e)
 		;; 型エラー
 		(format t "~a~%" e))))))))
 
@@ -238,7 +249,7 @@
 		 (s (mapcar #'(lambda (v) `(,v ,(fresh-tyvar))) tyvars))
 		 (ty (ty-of-tysc it)))
 	    (values '() (subst-type s ty)))
-	  (error (format nil "variable not bound: ~A" ?var))))
+	  (error (make-miniml-error "ty-exp: variable not bound: ~A" ?var))))
     ((?op ?exp1 ?exp2) :where (member ?op '(+ * < cons))
      (let+ (((&values s1 ty1) (ty-exp tyenv ?exp1))
 	    ((&values s2 ty2) (ty-exp tyenv ?exp2))
@@ -308,7 +319,7 @@
 		   (,ty-operand ,ty1)))
 	    (s (unify eqs)))
        (values s (subst-type s ty2))))
-    (:_ (error (format nil "ty-exp: not implemented: ~A" exp)))))
+    (:_ (error (make-miniml-error "ty-exp: not implemented: ~A" exp)))))
 
 (defun ty-binds (tyenv binds)
   "束縛binds=((var1 exp1)...)と型環境tyenvから型代入と各変数の型のリスト=((var1 ty1)...)を返す"
@@ -328,11 +339,11 @@
     (* (values `((,ty1 ty-int) (,ty2 ty-int)) 'ty-int))
     (< (values `((,ty1 ty-int) (,ty2 ty-int)) 'ty-bool))
     (cons (values `((,ty2 (ty-cons ,ty1))) ty2))
-    (t (error (format nil "not implemented operator: ~A" op)))))
+    (t (error (make-miniml-error "ty-prim: not implemented operator: ~A" op)))))
     
 (defun ty-match (tyenv exp pat-exps)
   (when (null pat-exps)
-    (error (format nil "ty-match: no pattern")))
+    (error (make-miniml-error "ty-match: no pattern")))
   (let+ (((&values subst ty) (ty-exp tyenv exp))
 	 ((&values ty-pats
 		   (ty-exp . ty-exp-rest)
@@ -376,7 +387,7 @@
     (?num :where (numberp ?num)
      (values 'ty-int tyenv '()))
     ((quote . :_)
-     (error (format nil "ty-pat: not implemented: %a" pat)))
+     (error (make-miniml-error "ty-pat: not implemented: %a" pat)))
     ((cons ?car-pat ?cdr-pat)
      (let+ (((&values ty-car tyenv1 tyeq-car) (ty-pat tyenv ?car-pat))
 	    ((&values ty-cdr tyenv2 tyeq-cdr) (ty-pat tyenv1 ?cdr-pat))
@@ -468,7 +479,7 @@
      `(ty-fun ,(subst-type subst ?ty1) ,(subst-type subst ?ty2)))
     ((ty-cons ?ty)
      `(ty-cons ,(subst-type subst ?ty)))
-    (:_ (error (format nil "subst-type: not implemented: ~a" ty)))))
+    (:_ (error (make-miniml-error "subst-type: not implemented: ~a" ty)))))
 
 (defun subst-tysc (subst tysc)
   "型スキームTYSCの中の型変数を型代入SUBSTで置き換えます。
@@ -510,7 +521,7 @@
 	     (unify `((,?ty11 ,?ty21) (,?ty12 ,?ty22) ,@rest)))
 	    (((ty-var :_) :_)
 	     (when (member ty1 (freevar-ty ty2))
-	       (error (format nil "occur check failed: ~A ~A" ty1 ty2)))
+	       (error (make-miniml-error "occur check failed: ~A ~A" ty1 ty2)))
 	     (let*
 		 ((subst1 `(,ty1 ,ty2))
 		  (subst `(,subst1))
@@ -519,7 +530,7 @@
 	    ((:_ (ty-var :_))
 	     (unify `((,ty2 ,ty1) ,@rest)))
 	    (:_
-	     (error (format nil "cannot unify: ~A ~A" ty1 ty2))))))))
+	     (error (make-miniml-error "cannot unify: ~A ~A" ty1 ty2))))))))
 
 (defun make-tysc (vars ty)
   `(,vars ,ty))
