@@ -1,10 +1,12 @@
-(defpackage miniml-lisp
+(defpackage :miniml-lisp
   (:use :cl :my-util/case-match :my-util :my-util/dbind :let-over-lambda :let-plus)
   (:export
-   eval-exp eval-prog1
-   true false if let letrec def defrec fun
-   ty-int ty-bool ty-fun
-   ty-exp fresh-tyvar subst-find subst-type unify))
+   #:eval-exp #:eval-prog1
+   #:true #:false
+   #:cons #:nil
+   #:if #:let #:letrec #:def #:defrec #:fun #:match
+   #:ty-int #:ty-bool #:ty-fun
+   #:ty-exp #:fresh-tyvar #:subst-find #:subst-type #:unify))
 (in-package :miniml-lisp)
 
 (defun boolp (x)
@@ -158,7 +160,7 @@
     (?var :where (symbolp ?var) (values t `((,?var ,value))))
     (?num :where (numberp ?num) (values (= ?num value) '()))
     ((quote ?const) (values (equal ?const value) '()))
-    ((?car-pat . ?cdr-pat)
+    ((cons ?car-pat ?cdr-pat)
      (if (consp value)
 	 (multiple-value-bind (car-matched car-binds) (match ?car-pat (car value))
 	   (if car-matched
@@ -229,6 +231,7 @@
     (:_ :where (numberp exp) (values '() 'ty-int))
     (true (values '() 'ty-bool))
     (false (values '() 'ty-bool))
+    (nil (values '() `(ty-cons ,(fresh-tyvar))))
     (?var :where (symbolp exp)
      (aif (env-lookup ?var tyenv)
 	  (let+ ((tyvars (vars-of-tysc it))
@@ -236,7 +239,7 @@
 		 (ty (ty-of-tysc it)))
 	    (values '() (subst-type s ty)))
 	  (error (format nil "variable not bound: ~A" ?var))))
-    ((?op ?exp1 ?exp2) :where (member ?op '(+ * <))
+    ((?op ?exp1 ?exp2) :where (member ?op '(+ * < cons))
      (let+ (((&values s1 ty1) (ty-exp tyenv ?exp1))
 	    ((&values s2 ty2) (ty-exp tyenv ?exp2))
 	    ((&values eqs3 ty) (ty-prim ?op ty1 ty2))
@@ -292,6 +295,8 @@
 		,@(eqs-of-subst s-exp)))
 	    (s (unify eqs)))
        (values s (subst-type s ty-exp))))
+    ((match ?exp . ?pat-exprs)
+     (ty-match tyenv ?exp ?pat-exprs))
     ((?fun ?operand)
      (let+ (((&values s-fun ty-fun) (ty-exp tyenv ?fun))
 	    ((&values s-operand ty-operand) (ty-exp tyenv ?operand))
@@ -303,7 +308,7 @@
 		   (,ty-operand ,ty1)))
 	    (s (unify eqs)))
        (values s (subst-type s ty2))))
-    (:_ (error (format nil "not implemented: ~A" exp)))))
+    (:_ (error (format nil "ty-exp: not implemented: ~A" exp)))))
 
 (defun ty-binds (tyenv binds)
   "束縛binds=((var1 exp1)...)と型環境tyenvから型代入と各変数の型のリスト=((var1 ty1)...)を返す"
@@ -322,8 +327,64 @@
     (+ (values `((,ty1 ty-int) (,ty2 ty-int)) 'ty-int))
     (* (values `((,ty1 ty-int) (,ty2 ty-int)) 'ty-int))
     (< (values `((,ty1 ty-int) (,ty2 ty-int)) 'ty-bool))
+    (cons (values `((,ty2 (ty-cons ,ty1))) ty2))
     (t (error (format nil "not implemented operator: ~A" op)))))
     
+(defun ty-match (tyenv exp pat-exps)
+  (when (null pat-exps)
+    (error (format nil "ty-match: no pattern")))
+  (let+ (((&values subst ty) (ty-exp tyenv exp))
+	 ((&values ty-pats
+		   (ty-exp . ty-exp-rest)
+		   eqs-list)
+	   (mb-mapcar #'(lambda (pat-exp)
+			  (let+ (((pat exp) pat-exp))
+			    (ty-pat-exp tyenv pat exp)))
+		      pat-exps))
+	 (eqs `(,@(eqs-of-subst subst)
+		,@(mapcar #'(lambda (ty-pat) `(,ty ,ty-pat)) ty-pats)
+		,@(mapcar #'(lambda (ty-rest) `(,ty-exp ,ty-rest)) ty-exp-rest)
+		,@(apply #'nconc eqs-list)))
+	 (s (unify eqs)))
+    (values s (subst-type s ty-exp))))
+
+(defun ty-pat-exp (tyenv pat exp)
+  "match式のパターンと式の組について以下の物を返します
+    * PATの型
+    * EXPの型
+    * 満たすべき型等式のリスト"
+  (let+ (((&values ty-pat new-tyenv eqs-pat)
+	   (ty-pat tyenv pat))
+	 ((&values subst ty) (ty-exp new-tyenv exp))
+	 (eqs `(,@eqs-pat ,@(eqs-of-subst subst))))
+    (values ty-pat ty eqs)))
+
+(defun ty-pat (tyenv pat)
+  "match式のパターンPATについて以下の物を返します。
+     * その型
+     * キャプチャした変数でTYENVを更新した型環境
+     * 満たすべき型等式のリスト
+  キャプチャする変数には重複がないものとします(いまのところ積極的にチェックはしません)"
+  (case-match pat
+    (nil (let ((ty (fresh-tyvar)))
+	   (values `(ty-cons ,ty) tyenv '())))
+    (?bool :where (boolp ?bool)
+     (values 'ty-bool tyenv '()))
+    (?var :where (symbolp ?var)
+     (let ((ty (fresh-tyvar)))
+       (values ty (env-add ?var (tysc-of-ty ty) tyenv) '())))
+    (?num :where (numberp ?num)
+     (values 'ty-int tyenv '()))
+    ((quote . :_)
+     (error (format nil "ty-pat: not implemented: %a" pat)))
+    ((cons ?car-pat ?cdr-pat)
+     (let+ (((&values ty-car tyenv1 tyeq-car) (ty-pat tyenv ?car-pat))
+	    ((&values ty-cdr tyenv2 tyeq-cdr) (ty-pat tyenv1 ?cdr-pat))
+	    (tyeq `(((ty-cons ,ty-car) ,ty-cdr)
+		    ,@tyeq-car
+		    ,@tyeq-cdr)))
+       (values ty-cdr tyenv2 tyeq)))))
+
 (defun ty-prog1 (tyenv prog)
   "PROGにTYENVのもとで型を付けて
    (<結果> <新しい型環境>)の形のリストを返す。
@@ -396,7 +457,6 @@
 
 (defun subst-type (subst ty)
   "TYの中の型変数をSUBSTに基づいて置き換えます"
-
   (case-match ty
     (ty-int 'ty-int)
     (ty-bool 'ty-bool)
@@ -405,7 +465,10 @@
 	  (subst-type subst (cadr it))
 	  ty))
     ((ty-fun ?ty1 ?ty2)
-     `(ty-fun ,(subst-type subst ?ty1) ,(subst-type subst ?ty2)))))
+     `(ty-fun ,(subst-type subst ?ty1) ,(subst-type subst ?ty2)))
+    ((ty-cons ?ty)
+     `(ty-cons ,(subst-type subst ?ty)))
+    (:_ (error (format nil "subst-type: not implemented: ~a" ty)))))
 
 (defun subst-tysc (subst tysc)
   "型スキームTYSCの中の型変数を型代入SUBSTで置き換えます。
@@ -441,6 +504,8 @@
 	  (case-match ty-eq
 	    ((?ty1 ?ty2) :where (equal ?ty1 ?ty2)
 	     (unify rest))
+	    (((ty-cons ?ty1) (ty-cons ?ty2))
+	     (unify `((,?ty1 ,?ty2) ,@rest)))
 	    (((ty-fun ?ty11 ?ty12) (ty-fun ?ty21 ?ty22))
 	     (unify `((,?ty11 ,?ty21) (,?ty12 ,?ty22) ,@rest)))
 	    (((ty-var :_) :_)
