@@ -185,12 +185,11 @@
 	 (values nil '())))
     (:_ (error (make-miniml-error "invalid pattern: ~A" pat)))))
 
-;; progをenvのもとで評価して
-;; (<結果> <新しい環境)の形のリストを返す。
-;; <結果>はprogが
-;; (def ((v1 e1) (v2 e2)...)) のとき ((v1 <e1の値>) (v2 <e2の値>)...)で
-;; <式>のときは ((nil <式の値>)) である
 (defun eval-prog1 (env prog)
+  "PROGをENVのもとで評価して<結果>と<新しい環境>を返します。
+   <結果>はPROGが
+  (<defまたはdefrec> ((v1 e1) (v2 e2)...)) のとき ((v1 <e1の値>) (v2 <e2の値>)...)で
+  <式>のときは ((nil <式の値>)) です"
   (case-match prog
     ((def ?binds)
      (let* ((bind-values (eval-binds env ?binds))
