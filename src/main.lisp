@@ -1,5 +1,6 @@
 (defpackage :miniml-lisp
   (:use :cl :my-util/case-match :my-util :my-util/dbind :let-over-lambda :let-plus)
+  (:shadowing-import-from :let-over-lambda #:if-match)
   (:export
    #:eval-exp #:eval-prog1
    #:true #:false
