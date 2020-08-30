@@ -1,12 +1,8 @@
 (defpackage :miniml-lisp
-  (:use
-   :cl
-   :my-util/case-match
-   :my-util
-   :my-util/dbind
-   :let-over-lambda
-   :let-plus)
-  (:shadowing-import-from :my-util #:if-match)
+  (:use :cl)
+  (:import-from :let-plus #:let+ #:&values #:&ign)
+  (:import-from :let-over-lambda #:aif #:it)
+  (:import-from :my-util #:case-match #:dbind #:mb-mapcar)
   (:export
    #:eval-exp #:eval-prog1
    #:true #:false
