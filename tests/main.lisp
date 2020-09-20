@@ -1,11 +1,11 @@
-(defpackage miniml-lisp/tests/main
+(defpackage miniml-lisp-tests/main
   (:use
    :cl
-   :miniml-lisp
+   :miniml-lisp/main
    :my-util
    :rove
    :let-plus))
-(in-package :miniml-lisp/tests/main)
+(in-package :miniml-lisp-tests/main)
 
 ;; NOTE: To run this test file, execute `(asdf:test-system :miniml-lisp)' in your Lisp.
 

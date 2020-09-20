@@ -1,4 +1,4 @@
-(defpackage :miniml-lisp
+(defpackage :miniml-lisp/main
   (:use :cl)
   (:import-from :let-plus #:let+ #:&values #:&ign)
   (:import-from :let-over-lambda #:aif #:it)
@@ -10,7 +10,7 @@
    #:if #:let #:letrec #:def #:defrec #:fun #:match
    #:ty-int #:ty-bool #:ty-fun
    #:ty-exp #:fresh-tyvar #:subst-find #:subst-type #:unify))
-(in-package :miniml-lisp)
+(in-package :miniml-lisp/main)
 
 (define-condition miniml-error (simple-error)
   ((fmt :initarg :fmt :reader miniml-error-fmt)
